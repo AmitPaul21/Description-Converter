@@ -264,7 +264,17 @@ def format_header(doc, well_name):
     return doc
 
 # ---------------- STREAMLIT APP ----------------
-st.title("Word Formatter + Depth/Percentage Checker 📝")
+st.title("Description Converter 📝")
+
+st.markdown("""
+### Instructions 📌
+1. Create a Word document and insert the text file for the Build Section. Go to Layout > Breaks > Page Break. Insert the text file for the Horizontal Section. Save the Word file.
+2. Upload the saved file here.
+3. Also, provide the well name for the file which will appear in the header section.
+4. Download the processed file once ready.
+5. If there are any issues in the depth, it will be marked as yellow.
+6. If there are any issues in the % values, it will be marked as red.
+""")
 
 uploaded_file = st.file_uploader("Upload your Word file (.docx)", type=["docx"])
 well_name = st.text_input("Enter Well Name (will appear in header)", "")
