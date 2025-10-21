@@ -9,7 +9,7 @@ import re
 import pandas as pd
 
 # ----------------- Load Replacement Dictionary from Excel -----------------
-excel_file_path = r"C:\Users\AmitPaul\Projects\WellReportsAutomation\replacement_dict.xlsx"
+excel_file_path = r"https://docs.google.com/spreadsheets/d/1OrbL4oC8JEfiObzEKst8xeEypDQkadiGXwbJQaprOf4/edit?usp=sharing"
 
 try:
     df = pd.read_excel(excel_file_path)
@@ -305,4 +305,3 @@ if uploaded_file is not None and st.button("Process File"):
 
     except Exception as e:
         st.error(f"Error processing the document: {e}")
-
