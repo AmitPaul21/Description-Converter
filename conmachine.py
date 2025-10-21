@@ -1,7 +1,7 @@
 import streamlit as st
 from docx import Document
 from docx.shared import Pt, Cm
-from docx.enum.text import WD_BREAK, WD_COLOR_INDEX
+from docx.enum.text import WD_BREAK
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from io import BytesIO
@@ -9,7 +9,7 @@ import re
 import pandas as pd
 
 # ----------------- Load Replacement Dictionary from Excel -----------------
-excel_file_path = r"https://docs.google.com/spreadsheets/d/1OrbL4oC8JEfiObzEKst8xeEypDQkadiGXwbJQaprOf4/edit?usp=sharing"
+excel_file_path = r"replacement_dict.xlsx"
 
 try:
     df = pd.read_excel(excel_file_path)
@@ -56,6 +56,7 @@ def add_styled_break(para, break_type=WD_BREAK.LINE):
     r = para.add_run("")  # empty run
     r.font.name = "Times New Roman"
     r.font.size = Pt(10)
+
     rPr = r._element.get_or_add_rPr()
     rFonts = OxmlElement("w:rFonts")
     rFonts.set(qn("w:ascii"), "Times New Roman")
@@ -63,74 +64,50 @@ def add_styled_break(para, break_type=WD_BREAK.LINE):
     rFonts.set(qn("w:cs"), "Times New Roman")
     rFonts.set(qn("w:eastAsia"), "Times New Roman")
     rPr.append(rFonts)
+
     r.add_break(break_type)
     return r
 
-# ---------------- Highlight Helper ----------------
-def highlight_run_safe(run, color="yellow"):
-    if color == "yellow":
-        run.font.highlight_color = WD_COLOR_INDEX.YELLOW
-    elif color == "red":
-        run.font.highlight_color = WD_COLOR_INDEX.RED
+# ---------------- Helper: write text with manual breaks ----------------
+def set_para_text_with_manual_breaks(para, text):
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+    pattern = re.compile(r'([05])\s([SACDL])|\n')
+    pos = 0
 
-# ---------------- Parse Depth Interval ----------------
-def parse_depth_interval(text):
-    match = re.match(r"^\s*(\d+)-(\d+)", text)
-    if match:
-        return int(match.group(1)), int(match.group(2)), match.group(0)
-    return None
+    for m in pattern.finditer(text):
+        pre = text[pos:m.start()]
+        if pre:
+            r = para.add_run(pre)
+            r.font.name = "Times New Roman"
+            r.font.size = Pt(10)
 
-# ---------------- Check Percentages ----------------
-def check_percentages_in_text(text):
-    percentages = [int(x) for x in re.findall(r"\((\d+)%\)", text)]
-    if percentages and sum(percentages) != 100:
-        return True
-    return False
+        if m.group(0) == '\n':
+            add_styled_break(para)
+        else:
+            num = m.group(1)
+            let = m.group(2)
 
-# ---------------- Set paragraph text with manual breaks & highlighting ----------------
-def set_para_text_with_highlight(para, text, prev_end=None):
-    """Add runs to a paragraph, insert line break after depth, and apply highlighting."""
-    depth_result = parse_depth_interval(text)
-    highlight_depth = False
-    if depth_result:
-        start, end, depth_text = depth_result
-        if prev_end is not None and start != prev_end:
-            highlight_depth = True
-        prev_end = end
-    else:
-        depth_text = None
+            r1 = para.add_run(num)
+            r1.font.name = "Times New Roman"
+            r1.font.size = Pt(10)
+            add_styled_break(para)
 
-    highlight_percentage = check_percentages_in_text(text)
+            r2 = para.add_run(let)
+            r2.font.name = "Times New Roman"
+            r2.font.size = Pt(10)
 
-    # If line starts with depth, split it
-    if depth_text and text.startswith(depth_text):
-        # Add depth as a run
-        r_depth = para.add_run(depth_text)
-        r_depth.font.name = "Times New Roman"
-        r_depth.font.size = Pt(10)
-        if highlight_depth:
-            highlight_run_safe(r_depth, "yellow")
+        pos = m.end()
 
-        # Add line break after depth
-        add_styled_break(para)
-
-        # Add rest of the text as another run
-        rest_text = text[len(depth_text):].lstrip()
-        if rest_text:
-            r_rest = para.add_run(rest_text)
-            r_rest.font.name = "Times New Roman"
-            r_rest.font.size = Pt(10)
-            if highlight_percentage:
-                highlight_run_safe(r_rest, "red")
-    else:
-        # No depth, just add full text
-        r = para.add_run(text)
+    tail = text[pos:]
+    if tail:
+        r = para.add_run(tail)
         r.font.name = "Times New Roman"
         r.font.size = Pt(10)
-        if highlight_percentage:
-            highlight_run_safe(r, "red")
 
-    return prev_end
+    if not para.runs:
+        r = para.add_run('')
+        r.font.name = "Times New Roman"
+        r.font.size = Pt(10)
 
 # ---------------- Document Formatting Function ----------------
 def format_document(doc):
@@ -144,23 +121,25 @@ def format_document(doc):
     except Exception:
         normal = None
 
-    prev_end = None
-
-    # ---------------- Paragraphs ----------------
+    # ---------------- Body Paragraphs ----------------
     for para in doc.paragraphs:
         raw = para.text
         text = replace_words_safe(raw, replacement_dict)
         text = clean_text(text).strip()
+
         if text:
             text = re.sub(r'[^A-Za-z0-9]+$', '', text)
             text += "."
+
         for run in list(para.runs):
             run.text = ''
         try:
             para._p.clear_content()
         except Exception:
             pass
-        prev_end = set_para_text_with_highlight(para, text, prev_end)
+
+        set_para_text_with_manual_breaks(para, text)
+
         if normal is not None:
             para.style = normal
         para.paragraph_format.line_spacing = 1.5
@@ -177,13 +156,16 @@ def format_document(doc):
                     raw = para.text
                     text = replace_words_safe(raw, replacement_dict)
                     text = clean_text(text).strip()
+
                     for run in list(para.runs):
                         run.text = ''
                     try:
                         para._p.clear_content()
                     except Exception:
                         pass
-                    prev_end = set_para_text_with_highlight(para, text, prev_end)
+
+                    set_para_text_with_manual_breaks(para, text)
+
                     if normal is not None:
                         para.style = normal
                     para.paragraph_format.line_spacing = 1.5
@@ -197,13 +179,16 @@ def format_document(doc):
                 raw = para.text
                 text = replace_words_safe(raw, replacement_dict)
                 text = clean_text(text).strip()
+
                 for run in list(para.runs):
                     run.text = ''
                 try:
                     para._p.clear_content()
                 except Exception:
                     pass
-                prev_end = set_para_text_with_highlight(para, text, prev_end)
+
+                set_para_text_with_manual_breaks(para, text)
+
                 if normal is not None:
                     para.style = normal
                 para.paragraph_format.line_spacing = 1.5
@@ -223,38 +208,47 @@ def format_document(doc):
 def format_header(doc, well_name):
     for section in doc.sections:
         header = section.header
+
+        # Clear existing header content
         for para in header.paragraphs:
             p = para._element
             p.getparent().remove(p)
 
+        # Well name (centered, all caps)
         para1 = header.add_paragraph()
-        para1.alignment = 1
+        para1.alignment = 1  # Center
         para1.paragraph_format.line_spacing = 1.0
         run1 = para1.add_run(well_name.upper())
         run1.font.name = "Times New Roman"
         run1.font.size = Pt(10)
 
+        # Empty line
         header.add_paragraph().paragraph_format.line_spacing = 1.0
 
+        # SAMPLE DESCRIPTIONS (centered, underlined)
         para2 = header.add_paragraph()
-        para2.alignment = 1
+        para2.alignment = 1  # Center
         para2.paragraph_format.line_spacing = 1.0
         run2 = para2.add_run("SAMPLE DESCRIPTIONS")
         run2.font.name = "Times New Roman"
         run2.font.size = Pt(10)
         run2.underline = True
 
+        # Empty line
         header.add_paragraph().paragraph_format.line_spacing = 1.0
 
+        # Depth (m), left aligned
         para3 = header.add_paragraph()
-        para3.alignment = 0
+        para3.alignment = 0  # Left
         para3.paragraph_format.line_spacing = 1.0
         run3 = para3.add_run("Depth (m)")
         run3.font.name = "Times New Roman"
         run3.font.size = Pt(10)
 
+        # Empty line
         header.add_paragraph().paragraph_format.line_spacing = 1.0
 
+    # ---------------- Remove all footers ----------------
     for section in doc.sections:
         footer = section.footer
         for para in footer.paragraphs:
@@ -263,45 +257,31 @@ def format_header(doc, well_name):
 
     return doc
 
-# ---------------- STREAMLIT APP ----------------
-st.title("Description Converter 📝")
 
-st.markdown("""
-### Instructions 📌
-1. Create a Word document and insert the text file for the Build Section. Go to Layout > Breaks > Page Break. Insert the text file for the Horizontal Section. Save the Word file.
-2. Upload the saved file here.
-3. Also, provide the well name for the file which will appear in the header section.
-4. Download the processed file once ready.
-5. If there are any issues in the depth, it will be marked as yellow.
-6. If there are any issues in the % values, it will be marked as red.
-""")
+# ---------------- Streamlit UI ----------------
+st.title("Word File Formatter 📝")
 
-uploaded_file = st.file_uploader("Upload your Word file (.docx)", type=["docx"])
+uploaded_file = st.file_uploader("Upload a Word file (.docx)", type=["docx"])
 well_name = st.text_input("Enter Well Name (will appear in header)", "")
 
-if uploaded_file is not None and st.button("Process File"):
+if uploaded_file is not None and st.button("Format File"):
     try:
         doc = Document(uploaded_file)
+        updated_doc = format_document(doc)
 
-        # Step 1: Format the document & check depth/percentages
-        doc = format_document(doc)
-
-        # Step 2: Add custom header
         if well_name.strip():
-            doc = format_header(doc, well_name)
+            updated_doc = format_header(updated_doc, well_name)
 
-        # Step 3: Save final output
         buffer = BytesIO()
-        doc.save(buffer)
+        updated_doc.save(buffer)
         buffer.seek(0)
 
-        st.success("✅ File processed successfully with highlights!")
         st.download_button(
-            label="Download Final File",
+            label="Download Updated File",
             data=buffer,
-            file_name="formatted_checked_output.docx",
+            file_name="formatted_output.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
-
     except Exception as e:
         st.error(f"Error processing the document: {e}")
+
