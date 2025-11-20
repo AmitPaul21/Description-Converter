@@ -305,3 +305,4 @@ if uploaded_file is not None and st.button("Process File"):
 
     except Exception as e:
         st.error(f"Error processing the document: {e}")
+
