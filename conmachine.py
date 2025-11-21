@@ -20,6 +20,7 @@ except Exception as e:
     print(f"❌ Error loading replacement dictionary: {e}")
     replacement_dict = {}
 
+
 # ---------------- Safe Whole Word Replacement ----------------
 def replace_words_safe(text, replacement_dict):
     for key, val in replacement_dict.items():
@@ -27,16 +28,50 @@ def replace_words_safe(text, replacement_dict):
         text = re.sub(pattern, val, text)
     return text
 
+
 # ---------------- Clean Special Formatting ----------------
 def clean_text(text):
+
+    if not isinstance(text, str):
+        return text
+
+    # normalize repeated spaces
     while '  ' in text:
         text = text.replace('  ', ' ')
+
+    # ensure comma spacing
     text = re.sub(r',\s*', ', ', text)
+
+    # ensure a space before open parenthesis
     text = re.sub(r'\(', ' (', text)
     while '  ' in text:
         text = text.replace('  ', ' ')
+
+    # Capitalize all-caps lithology name (SHALE → Shale)
     text = re.sub(r'\b([A-Z]+)\s*\(', lambda m: m.group(1).capitalize() + ' (', text)
+
+    # ---------- FIX #1 ----------
+    # Shale (10. → Shale (10%).
+    text = re.sub(r'\(\s*(\d+)\s*\.\s*', r'(\1%).', text)
+
+    # ---------- FIX #2 ----------
+    # Shale (trace. → Shale (trace).
+    text = re.sub(r'\(\s*([A-Za-z]+)\s*\.\s*', r'(\1).', text)
+
+    # ---------- FIX #3 ----------
+    # silty Sandstone ( → Silty Sandstone (
+    text = re.sub(r'\bsilty Sandstone\s*\(', 'Silty Sandstone (', text)
+
+    # ---------- FIX #4 ----------
+    # argillaceous Shale ( → Argillaceous Shale (
+    text = re.sub(r'\bargillaceous Shale\s*\(', 'Argillaceous Shale (', text)
+
+    # ---------- FIX #5 ----------
+    # Capitalize first letter of full line
+    text = re.sub(r'^[a-z]', lambda m: m.group(0).upper(), text)
+
     return text
+
 
 # ---------------- Remove Extra Empty Paragraphs ----------------
 def remove_extra_empty_paragraphs(doc):
@@ -51,9 +86,10 @@ def remove_extra_empty_paragraphs(doc):
         i += 1
     return doc
 
+
 # ---------------- Styled Line Break Helper ----------------
 def add_styled_break(para, break_type=WD_BREAK.LINE):
-    r = para.add_run("")  # empty run
+    r = para.add_run("")
     r.font.name = "Times New Roman"
     r.font.size = Pt(10)
     rPr = r._element.get_or_add_rPr()
@@ -66,12 +102,14 @@ def add_styled_break(para, break_type=WD_BREAK.LINE):
     r.add_break(break_type)
     return r
 
+
 # ---------------- Highlight Helper ----------------
 def highlight_run_safe(run, color="yellow"):
     if color == "yellow":
         run.font.highlight_color = WD_COLOR_INDEX.YELLOW
     elif color == "red":
         run.font.highlight_color = WD_COLOR_INDEX.RED
+
 
 # ---------------- Parse Depth Interval ----------------
 def parse_depth_interval(text):
@@ -80,6 +118,7 @@ def parse_depth_interval(text):
         return int(match.group(1)), int(match.group(2)), match.group(0)
     return None
 
+
 # ---------------- Check Percentages ----------------
 def check_percentages_in_text(text):
     percentages = [int(x) for x in re.findall(r"\((\d+)%\)", text)]
@@ -87,11 +126,12 @@ def check_percentages_in_text(text):
         return True
     return False
 
+
 # ---------------- Set paragraph text with manual breaks & highlighting ----------------
 def set_para_text_with_highlight(para, text, prev_end=None):
-    """Add runs to a paragraph, insert line break after depth, and apply highlighting."""
     depth_result = parse_depth_interval(text)
     highlight_depth = False
+
     if depth_result:
         start, end, depth_text = depth_result
         if prev_end is not None and start != prev_end:
@@ -102,19 +142,15 @@ def set_para_text_with_highlight(para, text, prev_end=None):
 
     highlight_percentage = check_percentages_in_text(text)
 
-    # If line starts with depth, split it
     if depth_text and text.startswith(depth_text):
-        # Add depth as a run
         r_depth = para.add_run(depth_text)
         r_depth.font.name = "Times New Roman"
         r_depth.font.size = Pt(10)
         if highlight_depth:
             highlight_run_safe(r_depth, "yellow")
 
-        # Add line break after depth
         add_styled_break(para)
 
-        # Add rest of the text as another run
         rest_text = text[len(depth_text):].lstrip()
         if rest_text:
             r_rest = para.add_run(rest_text)
@@ -123,7 +159,6 @@ def set_para_text_with_highlight(para, text, prev_end=None):
             if highlight_percentage:
                 highlight_run_safe(r_rest, "red")
     else:
-        # No depth, just add full text
         r = para.add_run(text)
         r.font.name = "Times New Roman"
         r.font.size = Pt(10)
@@ -131,6 +166,7 @@ def set_para_text_with_highlight(para, text, prev_end=None):
             highlight_run_safe(r, "red")
 
     return prev_end
+
 
 # ---------------- Document Formatting Function ----------------
 def format_document(doc):
@@ -149,23 +185,26 @@ def format_document(doc):
     # ---------------- Paragraphs ----------------
     for para in doc.paragraphs:
         raw = para.text
+
         text = replace_words_safe(raw, replacement_dict)
         text = clean_text(text).strip()
+
         if text:
-            text = re.sub(r'[^A-Za-z0-9]+$', '', text)
-            text += "."
+            if not re.search(r'[\.!\?]$', text):
+                text += "."
+
         for run in list(para.runs):
             run.text = ''
         try:
             para._p.clear_content()
         except Exception:
             pass
+
         prev_end = set_para_text_with_highlight(para, text, prev_end)
-        if normal is not None:
+
+        if normal:
             para.style = normal
         para.paragraph_format.line_spacing = 1.5
-        para.paragraph_format.space_before = Pt(0)
-        para.paragraph_format.space_after = Pt(0)
 
     doc = remove_extra_empty_paragraphs(doc)
 
@@ -177,18 +216,18 @@ def format_document(doc):
                     raw = para.text
                     text = replace_words_safe(raw, replacement_dict)
                     text = clean_text(text).strip()
+
                     for run in list(para.runs):
                         run.text = ''
                     try:
                         para._p.clear_content()
                     except Exception:
                         pass
+
                     prev_end = set_para_text_with_highlight(para, text, prev_end)
-                    if normal is not None:
+
+                    if normal:
                         para.style = normal
-                    para.paragraph_format.line_spacing = 1.5
-                    para.paragraph_format.space_before = Pt(0)
-                    para.paragraph_format.space_after = Pt(0)
 
     # ---------------- Headers and Footers ----------------
     for section in doc.sections:
@@ -197,18 +236,18 @@ def format_document(doc):
                 raw = para.text
                 text = replace_words_safe(raw, replacement_dict)
                 text = clean_text(text).strip()
+
                 for run in list(para.runs):
                     run.text = ''
                 try:
                     para._p.clear_content()
                 except Exception:
                     pass
+
                 prev_end = set_para_text_with_highlight(para, text, prev_end)
-                if normal is not None:
+
+                if normal:
                     para.style = normal
-                para.paragraph_format.line_spacing = 1.5
-                para.paragraph_format.space_before = Pt(0)
-                para.paragraph_format.space_after = Pt(0)
 
     # ---------------- Page Setup Margins ----------------
     for section in doc.sections:
@@ -219,6 +258,7 @@ def format_document(doc):
 
     return doc
 
+
 # ---------------- Custom Header Formatter ----------------
 def format_header(doc, well_name):
     for section in doc.sections:
@@ -227,33 +267,30 @@ def format_header(doc, well_name):
             p = para._element
             p.getparent().remove(p)
 
-        para1 = header.add_paragraph()
-        para1.alignment = 1
-        para1.paragraph_format.line_spacing = 1.0
-        run1 = para1.add_run(well_name.upper())
-        run1.font.name = "Times New Roman"
-        run1.font.size = Pt(10)
+        p1 = header.add_paragraph()
+        p1.alignment = 1
+        r1 = p1.add_run(well_name.upper())
+        r1.font.name = "Times New Roman"
+        r1.font.size = Pt(10)
 
-        header.add_paragraph().paragraph_format.line_spacing = 1.0
+        header.add_paragraph()
 
-        para2 = header.add_paragraph()
-        para2.alignment = 1
-        para2.paragraph_format.line_spacing = 1.0
-        run2 = para2.add_run("SAMPLE DESCRIPTIONS")
-        run2.font.name = "Times New Roman"
-        run2.font.size = Pt(10)
-        run2.underline = True
+        p2 = header.add_paragraph()
+        p2.alignment = 1
+        r2 = p2.add_run("SAMPLE DESCRIPTIONS")
+        r2.font.name = "Times New Roman"
+        r2.font.size = Pt(10)
+        r2.underline = True
 
-        header.add_paragraph().paragraph_format.line_spacing = 1.0
+        header.add_paragraph()
 
-        para3 = header.add_paragraph()
-        para3.alignment = 0
-        para3.paragraph_format.line_spacing = 1.0
-        run3 = para3.add_run("Depth (m)")
-        run3.font.name = "Times New Roman"
-        run3.font.size = Pt(10)
+        p3 = header.add_paragraph()
+        p3.alignment = 0
+        r3 = p3.add_run("Depth (m)")
+        r3.font.name = "Times New Roman"
+        r3.font.size = Pt(10)
 
-        header.add_paragraph().paragraph_format.line_spacing = 1.0
+        header.add_paragraph()
 
     for section in doc.sections:
         footer = section.footer
@@ -263,39 +300,37 @@ def format_header(doc, well_name):
 
     return doc
 
+
 # ---------------- STREAMLIT APP ----------------
 st.title("Description Converter 📝")
 
 st.markdown("""
 ### Instructions 📌
-1. Create a Word document and insert the text file for the Build Section. Go to Layout > Breaks > Page Break. Insert the text file for the Horizontal Section. Save the Word file.
-2. Upload the saved file here.
-3. Also, provide the well name for the file which will appear in the header section.
-4. Download the processed file once ready.
-5. If there are any issues in the depth, it will be marked as yellow.
-6. If there are any issues in the % values, it will be marked as red.
+Upload your .docx file and enter the well name.  
+This tool will:  
+- Fix formatting  
+- Fix lithology capitalization  
+- Fix percentages  
+- Highlight depth & % errors  
 """)
 
 uploaded_file = st.file_uploader("Upload your Word file (.docx)", type=["docx"])
-well_name = st.text_input("Enter Well Name (will appear in header)", "")
+well_name = st.text_input("Enter Well Name (header)", "")
 
 if uploaded_file is not None and st.button("Process File"):
     try:
         doc = Document(uploaded_file)
 
-        # Step 1: Format the document & check depth/percentages
         doc = format_document(doc)
 
-        # Step 2: Add custom header
         if well_name.strip():
             doc = format_header(doc, well_name)
 
-        # Step 3: Save final output
         buffer = BytesIO()
         doc.save(buffer)
         buffer.seek(0)
 
-        st.success("✅ File processed successfully with highlights!")
+        st.success("✅ File processed successfully!")
         st.download_button(
             label="Download Final File",
             data=buffer,
@@ -304,5 +339,4 @@ if uploaded_file is not None and st.button("Process File"):
         )
 
     except Exception as e:
-        st.error(f"Error processing the document: {e}")
-
+        st.error(f"Error: {e}")
