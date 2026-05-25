@@ -8,18 +8,17 @@ from io import BytesIO
 import re
 import pandas as pd
 
-# ----------------- Load Replacement Dictionary from Excel -----------------
-sheet_url = "https://docs.google.com/spreadsheets/d/1OrbL4oC8JEfiObzEKst8xeEypDQkadiGXwbJQaprOf4/gviz/tq?tqx=out:csv"
+# ----------------- Load Replacement Dictionary from Local Excel -----------------
 
 @st.cache_data(ttl=3600)
 def load_replacement_dict():
-    df = pd.read_csv(sheet_url, engine="python", on_bad_lines="skip")
+    df = pd.read_excel("replacement_dict.xlsx")
     df = df.dropna(subset=['Find'])
     return dict(zip(df['Find'], df['Replace With']))
 
 try:
     replacement_dict = load_replacement_dict()
-    print("✅ Replacement dictionary loaded successfully from Google Sheets!")
+    print("✅ Replacement dictionary loaded successfully from local Excel!")
 except Exception as e:
     print(f"❌ Error loading replacement dictionary: {e}")
     replacement_dict = {}
