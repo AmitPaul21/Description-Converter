@@ -13,7 +13,7 @@ sheet_url = "https://docs.google.com/spreadsheets/d/1OrbL4oC8JEfiObzEKst8xeEypDQ
 
 @st.cache_data(ttl=3600)
 def load_replacement_dict():
-    df = pd.read_csv(sheet_url)
+    df = pd.read_csv(sheet_url, engine="python", on_bad_lines="skip")
     df = df.dropna(subset=['Find'])
     return dict(zip(df['Find'], df['Replace With']))
 
